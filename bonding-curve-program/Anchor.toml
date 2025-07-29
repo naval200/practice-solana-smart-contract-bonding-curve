@@ -8,6 +8,9 @@ skip-lint = false
 [programs.localnet]
 bonding_curve_program = "7312f8pgpoquo7RZnPh7hGnhyi4UAteW5Y2xwFonB6eR"
 
+[programs.devnet]
+bonding_curve_program = "6mUezShyoVHwwUEafmQBo4Wwa4fd8y1UqzoFc8jibJwd"
+
 [registry]
 url = "https://api.apr.dev"
 

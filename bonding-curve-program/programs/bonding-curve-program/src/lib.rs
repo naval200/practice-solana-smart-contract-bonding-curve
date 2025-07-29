@@ -3,7 +3,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Mint, MintTo, Burn};
 use anchor_spl::associated_token::AssociatedToken;
 
 // Program ID will be generated when deploying
-declare_id!("7312f8pgpoquo7RZnPh7hGnhyi4UAteW5Y2xwFonB6eR");
+declare_id!("6mUezShyoVHwwUEafmQBo4Wwa4fd8y1UqzoFc8jibJwd");
 
 /**
  * Educational Bonding Curve SPL Token Program
