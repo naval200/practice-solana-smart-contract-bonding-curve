@@ -1,0 +1,47 @@
+{
+  "name": "solana-token-bonding-curve-education",
+  "version": "1.0.0",
+  "description": "Educational project demonstrating SPL token creation with bonding curve mechanics on Solana",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm run build:program && npm run build:cli",
+    "build:program": "cd bonding-curve-program && anchor build",
+    "build:cli": "tsc",
+    "test": "cd bonding-curve-program && anchor test",
+    "deploy": "cd bonding-curve-program && anchor deploy",
+    "lint": "eslint . --ext .ts,.js",
+    "wallet:create": "node dist/cli.js wallet create",
+    "wallet:deposit": "node dist/cli.js wallet deposit",
+    "wallet:send": "node dist/cli.js wallet send",
+    "token:create": "node dist/cli.js token create"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
+    "@solana/spl-token": "^0.3.11",
+    "@solana/web3.js": "^1.87.6",
+    "bs58": "^5.0.0",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "inquirer": "^9.3.7",
+    "ora": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.8",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "solana",
+    "spl-token",
+    "bonding-curve",
+    "pump-fun",
+    "educational",
+    "blockchain"
+  ],
+  "author": "Educational Project",
+  "license": "MIT"
+}
