@@ -8,7 +8,7 @@
     "build:program": "cd bonding-curve-program && anchor build",
     "build:cli": "tsc",
     "test": "cd bonding-curve-program && anchor test",
-    "deploy": "cd bonding-curve-program && anchor deploy",
+    "deploy": "cd bonding-curve-program && anchor deploy --provider.cluster devnet",
     "lint": "eslint . --ext .ts,.js",
     "wallet:create": "node dist/cli.js wallet create",
     "wallet:deposit": "node dist/cli.js wallet deposit",

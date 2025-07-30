@@ -46,7 +46,7 @@ export class TokenCreator {
       // In a real application, you'd load the IDL from a file or network
       // For this educational example, we'll create a minimal IDL structure
       
-      const programId = new PublicKey('7312f8pgpoquo7RZnPh7hGnhyi4UAteW5Y2xwFonB6eR');
+      const programId = new PublicKey('D5aD6zRq93w46mpqKgY3JY9aF7KEWdEkeUk9E3EThrVH');
       
       // Create a minimal wallet for the program
       const wallet = new anchor.Wallet(Keypair.generate());
