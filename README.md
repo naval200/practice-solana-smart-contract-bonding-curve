@@ -15,7 +15,8 @@ This educational project demonstrates how to interact with bonding curve tokens 
 pumpfun-dev/
 ├── src/
 │   ├── create-token.ts        # Create new tokens with bonding curves
-│   └── buy-tokens.ts          # Buy tokens using any wallet
+│   ├── buy-tokens.ts          # Buy tokens using any wallet
+│   └── sell-tokens.ts         # Sell tokens back to bonding curve for SOL
 ├── wallets/                   # Wallet keypair files (gitignored for security)
 │   ├── creator.json          # Token creator wallet
 │   ├── token-mint.json       # Token mint keypair
@@ -88,7 +89,28 @@ npm run buy-tokens -- --help
 - Transaction execution and confirmation
 - Token balance updates after purchase
 
-### Step 4: Understand Token Creation (Advanced)
+### Step 4: Sell Tokens Back to Bonding Curve
+
+Sell your tokens back to the bonding curve for SOL:
+
+```bash
+# Sell tokens back for SOL (1 token default)
+npm run sell-tokens -- --wallet wallets/my_wallet.json --token 3xBq1Yr1PC8cUK9Sqyobci4yZoJdgFuVghU3PH5aQGcw
+
+# Sell specific amount of tokens
+npm run sell-tokens -- --wallet wallets/my_wallet.json --token 3xBq1Yr1PC8cUK9Sqyobci4yZoJdgFuVghU3PH5aQGcw --amount 3
+
+# See all options
+npm run sell-tokens -- --help
+```
+
+**What you'll learn:**
+- How bonding curve selling works (price decreases as supply decreases)
+- Token burning mechanism
+- SOL return calculation based on bonding curve mathematics
+- Balance updates for both tokens and SOL
+
+### Step 5: Understand Token Creation (Advanced)
 
 Examine the token creation process:
 
@@ -145,16 +167,26 @@ echo "Current Token Mint: 3xBq1Yr1PC8cUK9Sqyobci4yZoJdgFuVghU3PH5aQGcw"
 
 ## 🔧 Useful Commands
 
-### Token Purchase Commands
+### Token Trading Commands
 ```bash
-# Buy tokens with different wallets
+# Buy tokens with SOL
 npm run buy-tokens -- --wallet wallets/user_1.json --token 3xBq1Yr1PC8cUK9Sqyobci4yZoJdgFuVghU3PH5aQGcw --amount 0.01
 npm run buy-tokens -- --wallet wallets/creator.json --token 3xBq1Yr1PC8cUK9Sqyobci4yZoJdgFuVghU3PH5aQGcw --amount 0.05
 
-# Available options:
+# Sell tokens for SOL
+npm run sell-tokens -- --wallet wallets/user_1.json --token 3xBq1Yr1PC8cUK9Sqyobci4yZoJdgFuVghU3PH5aQGcw --amount 2
+npm run sell-tokens -- --wallet wallets/creator.json --token 3xBq1Yr1PC8cUK9Sqyobci4yZoJdgFuVghU3PH5aQGcw --amount 1
+
+# Buy tokens options:
 # -w, --wallet <path>     Path to wallet JSON file (required)
 # -t, --token <pubkey>    Token mint public key (required)  
 # -a, --amount <sol>      Amount of SOL to spend (default: 0.01)
+# -h, --help              Show help
+
+# Sell tokens options:
+# -w, --wallet <path>     Path to wallet JSON file (required)
+# -t, --token <pubkey>    Token mint public key (required)  
+# -a, --amount <tokens>   Amount of tokens to sell (default: 1)
 # -h, --help              Show help
 ```
 
@@ -185,20 +217,23 @@ solana airdrop 1 <WALLET_ADDRESS>
 
 ## 🎓 Learning Exercises
 
-### Exercise 1: Create Multiple Wallets
-1. Create 3 different wallets with different names
-2. Fund each with different amounts (0.5, 1.0, 2.0 SOL)
-3. Use the buy-tokens script to analyze each wallet
+### Exercise 1: Basic Token Trading
+1. Create a new wallet and fund it with 1 SOL
+2. Buy tokens with 0.05 SOL using the buy-tokens script
+3. Sell half of your tokens back using the sell-tokens script
+4. Compare your final SOL balance to your initial investment
 
-### Exercise 2: Token Account Analysis  
-1. Compare wallets that have tokens vs those that don't
-2. Predict the associated token account address before running the script
-3. Understand why some accounts exist and others don't
+### Exercise 2: Bonding Curve Mechanics  
+1. Buy tokens in small increments (0.01 SOL each time)
+2. Notice how the price increases with each purchase
+3. Sell tokens and observe how the price decreases
+4. Document the relationship between supply and price
 
-### Exercise 3: Balance Tracking
-1. Record initial balances for all wallets
-2. Note which wallets have token accounts
-3. Understand the relationship between SOL balance and transaction fees
+### Exercise 3: Multi-Wallet Trading
+1. Create 3 different wallets with different amounts of SOL
+2. Have each wallet buy different amounts of tokens
+3. Sell tokens from different wallets and compare returns
+4. Understand how trading affects the overall bonding curve
 
 ## 📚 Further Learning
 
