@@ -4,9 +4,10 @@
   "description": "Educational project demonstrating SPL token creation with bonding curve mechanics on Solana",
   "main": "index.js",
   "scripts": {
-    "build": "npm run build:program && npm run build:cli",
+    "build": "npm run build:program && npm run build:cli && npm run copy:idl",
     "build:program": "cd bonding-curve-program && anchor build",
     "build:cli": "tsc",
+    "copy:idl": "cp src/bonding-curve-program.json dist/src/",
     "test": "cd bonding-curve-program && anchor test",
     "deploy": "cd bonding-curve-program && anchor deploy --provider.cluster devnet",
     "lint": "eslint . --ext .ts,.js",

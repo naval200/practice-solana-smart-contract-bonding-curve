@@ -1,0 +1,878 @@
+{
+  "address": "GQQQNJZdqKnFwB6di7u2PnsJZLX7hzaYW4g4b5BeQ3nE",
+  "metadata": {
+    "name": "bonding_curve_program",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "docs": [
+    "* Educational Bonding Curve SPL Token Program\n * \n * This program implements a simple bonding curve mechanism for SPL tokens,\n * demonstrating core concepts similar to Pump.fun's functionality.\n * \n * Key Features:\n * - Linear bonding curve pricing\n * - Token minting/burning based on SOL deposits/withdrawals  \n * - Automated price discovery\n * - Educational comments explaining each step\n * \n * IMPORTANT: This is for educational purposes only!\n * Do not use in production without proper security audits."
+  ],
+  "instructions": [
+    {
+      "name": "buy_tokens",
+      "docs": [
+        "* Buy tokens using SOL through the bonding curve\n     * \n     * This function implements the core bonding curve logic:\n     * 1. Calculate how many tokens can be bought with the given SOL\n     * 2. Update the token supply and SOL reserves\n     * 3. Mint tokens to the buyer's associated token account\n     * \n     * The price increases as more tokens are minted, creating scarcity."
+      ],
+      "discriminator": [
+        189,
+        21,
+        230,
+        133,
+        247,
+        2,
+        110,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "docs": [
+            "The buyer of tokens"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bonding_curve",
+          "docs": [
+            "The bonding curve state"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  99,
+                  117,
+                  114,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_mint",
+          "docs": [
+            "The token mint"
+          ],
+          "writable": true
+        },
+        {
+          "name": "buyer_token_account",
+          "docs": [
+            "Buyer's associated token account (created if needed)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "sol_vault",
+          "docs": [
+            "SOL vault to receive payment"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "sol_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "get_current_price",
+      "docs": [
+        "* Get current token price based on supply\n     * This is a view function that doesn't modify state"
+      ],
+      "discriminator": [
+        82,
+        101,
+        90,
+        124,
+        192,
+        68,
+        89,
+        159
+      ],
+      "accounts": [
+        {
+          "name": "bonding_curve",
+          "docs": [
+            "The bonding curve to check price for"
+          ]
+        }
+      ],
+      "args": [],
+      "returns": "u64"
+    },
+    {
+      "name": "initialize_bonding_curve",
+      "docs": [
+        "* Initializes a new bonding curve for an SPL token\n     * \n     * This function sets up the bonding curve parameters and creates the necessary\n     * accounts for managing token sales/purchases through the curve.\n     * \n     * Parameters:\n     * - initial_price: Starting price in lamports per token (multiplied by 10^decimals)\n     * - slope: How much the price increases per token minted (linear curve)\n     * - name: Token name (for metadata)\n     * - symbol: Token symbol (for metadata)\n     * - uri: Metadata URI (can be empty for educational purposes)"
+      ],
+      "discriminator": [
+        140,
+        201,
+        166,
+        55,
+        224,
+        232,
+        206,
+        114
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "docs": [
+            "The creator of the bonding curve"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_mint",
+          "docs": [
+            "The token mint"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bonding_curve",
+          "docs": [
+            "The bonding curve state"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  99,
+                  117,
+                  114,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sol_vault",
+          "docs": [
+            "SOL vault to receive payment"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "initial_price",
+          "type": "u64"
+        },
+        {
+          "name": "slope",
+          "type": "u64"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "sell_tokens",
+      "docs": [
+        "* Sell tokens back to the bonding curve for SOL\n     * \n     * This function allows users to sell their tokens back to the curve:\n     * 1. Calculate how much SOL the tokens are worth at current price\n     * 2. Burn the tokens from the seller's account\n     * 3. Transfer SOL from reserves to the seller\n     * \n     * The price decreases as tokens are burned, maintaining the curve."
+      ],
+      "discriminator": [
+        114,
+        242,
+        25,
+        12,
+        62,
+        126,
+        92,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "docs": [
+            "The seller of tokens"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bonding_curve",
+          "docs": [
+            "The bonding curve state"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  99,
+                  117,
+                  114,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_mint",
+          "docs": [
+            "The token mint"
+          ],
+          "writable": true
+        },
+        {
+          "name": "seller_token_account",
+          "docs": [
+            "Seller's token account"
+          ],
+          "writable": true
+        },
+        {
+          "name": "sol_vault",
+          "docs": [
+            "SOL vault to send payment from"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "BondingCurve",
+      "discriminator": [
+        23,
+        183,
+        248,
+        55,
+        96,
+        216,
+        172,
+        96
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BondingCurveInitialized",
+      "discriminator": [
+        161,
+        216,
+        200,
+        50,
+        250,
+        13,
+        46,
+        121
+      ],
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "bonding_curve",
+          "type": "publicKey"
+        },
+        {
+          "name": "token_mint",
+          "type": "publicKey"
+        },
+        {
+          "name": "creator",
+          "type": "publicKey"
+        },
+        {
+          "name": "initial_price",
+          "type": "u64"
+        },
+        {
+          "name": "slope",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "TokensPurchased",
+      "discriminator": [
+        214,
+        119,
+        105,
+        186,
+        114,
+        205,
+        228,
+        181
+      ],
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "buyer",
+          "type": "publicKey"
+        },
+        {
+          "name": "bonding_curve",
+          "type": "publicKey"
+        },
+        {
+          "name": "tokens_minted",
+          "type": "u64"
+        },
+        {
+          "name": "sol_spent",
+          "type": "u64"
+        },
+        {
+          "name": "new_supply",
+          "type": "u64"
+        },
+        {
+          "name": "new_price",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "TokensSold",
+      "discriminator": [
+        217,
+        83,
+        68,
+        137,
+        134,
+        225,
+        94,
+        45
+      ],
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "seller",
+          "type": "publicKey"
+        },
+        {
+          "name": "bonding_curve",
+          "type": "publicKey"
+        },
+        {
+          "name": "tokens_burned",
+          "type": "u64"
+        },
+        {
+          "name": "sol_received",
+          "type": "u64"
+        },
+        {
+          "name": "new_supply",
+          "type": "u64"
+        },
+        {
+          "name": "new_price",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidPrice",
+      "msg": "Invalid price parameter"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidSlope",
+      "msg": "Invalid slope parameter"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount"
+    },
+    {
+      "code": 6003,
+      "name": "NameTooLong",
+      "msg": "Token name too long"
+    },
+    {
+      "code": 6004,
+      "name": "SymbolTooLong",
+      "msg": "Token symbol too long"
+    },
+    {
+      "code": 6005,
+      "name": "InsufficientSol",
+      "msg": "Insufficient SOL for purchase"
+    },
+    {
+      "code": 6006,
+      "name": "InsufficientSupply",
+      "msg": "Insufficient token supply"
+    },
+    {
+      "code": 6007,
+      "name": "InsufficientReserves",
+      "msg": "Insufficient SOL reserves"
+    },
+    {
+      "code": 6008,
+      "name": "SupplyOverflow",
+      "msg": "Supply overflow"
+    },
+    {
+      "code": 6009,
+      "name": "SupplyUnderflow",
+      "msg": "Supply underflow"
+    },
+    {
+      "code": 6010,
+      "name": "ReservesOverflow",
+      "msg": "Reserves overflow"
+    },
+    {
+      "code": 6011,
+      "name": "ReservesUnderflow",
+      "msg": "Reserves underflow"
+    },
+    {
+      "code": 6012,
+      "name": "PriceOverflow",
+      "msg": "Price calculation overflow"
+    },
+    {
+      "code": 6013,
+      "name": "MathOverflow",
+      "msg": "Math overflow in calculations"
+    }
+  ],
+  "types": [
+    {
+      "name": "BondingCurve",
+      "docs": [
+        "* ACCOUNT DATA STRUCTURES"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "docs": [
+              "The creator/authority of the bonding curve"
+            ],
+            "type": "publicKey"
+          },
+          {
+            "name": "token_mint",
+            "docs": [
+              "The token mint that this bonding curve manages"
+            ],
+            "type": "publicKey"
+          },
+          {
+            "name": "current_supply",
+            "docs": [
+              "Current total supply of tokens"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "sol_reserves",
+            "docs": [
+              "Current SOL reserves"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "initial_price",
+            "docs": [
+              "Initial price in lamports"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slope",
+            "docs": [
+              "Price slope in lamports"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Token name"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "symbol",
+            "docs": [
+              "Token symbol"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondingCurveInitialized",
+      "docs": [
+        "* EVENTS\n * These events are emitted for tracking and analytics"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bonding_curve",
+            "type": "publicKey"
+          },
+          {
+            "name": "token_mint",
+            "type": "publicKey"
+          },
+          {
+            "name": "creator",
+            "type": "publicKey"
+          },
+          {
+            "name": "initial_price",
+            "type": "u64"
+          },
+          {
+            "name": "slope",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokensPurchased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "publicKey"
+          },
+          {
+            "name": "bonding_curve",
+            "type": "publicKey"
+          },
+          {
+            "name": "tokens_minted",
+            "type": "u64"
+          },
+          {
+            "name": "sol_spent",
+            "type": "u64"
+          },
+          {
+            "name": "new_supply",
+            "type": "u64"
+          },
+          {
+            "name": "new_price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokensSold",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seller",
+            "type": "publicKey"
+          },
+          {
+            "name": "bonding_curve",
+            "type": "publicKey"
+          },
+          {
+            "name": "tokens_burned",
+            "type": "u64"
+          },
+          {
+            "name": "sol_received",
+            "type": "u64"
+          },
+          {
+            "name": "new_supply",
+            "type": "u64"
+          },
+          {
+            "name": "new_price",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

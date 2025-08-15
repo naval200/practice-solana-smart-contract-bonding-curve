@@ -159,7 +159,7 @@ export class BondingCurveClient {
     if (this.program) return this.program;
 
     try {
-      const programId = new PublicKey('D5aD6zRq93w46mpqKgY3JY9aF7KEWdEkeUk9E3EThrVH');
+      const programId = new PublicKey('GQQQNJZdqKnFwB6di7u2PnsJZLX7hzaYW4g4b5BeQ3nE');
       
       // Create a minimal wallet for the program
       const wallet = new anchor.Wallet(Keypair.generate());

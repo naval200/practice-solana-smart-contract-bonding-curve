@@ -121,7 +121,7 @@ Deploying cluster: https://api.devnet.solana.com
 Upgrade authority: ~/.config/solana/id.json
 Deploying program "bonding_curve_program"...
 Program path: ./target/deploy/bonding_curve_program.so...
-Program Id: D5aD6zRq93w46mpqKgY3JY9aF7KEWdEkeUk9E3EThrVH
+Program Id: 9ss4vSk1AzZsPHpmZ6fJae6vg4HefhcuGyh1425woFcV
 
 Deploy success
 ```

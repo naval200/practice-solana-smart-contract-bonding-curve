@@ -43,10 +43,8 @@ export class TokenCreator {
     if (this.program) return this.program;
 
     try {
-      // In a real application, you'd load the IDL from a file or network
-      // For this educational example, we'll create a minimal IDL structure
-      
-      const programId = new PublicKey('D5aD6zRq93w46mpqKgY3JY9aF7KEWdEkeUk9E3EThrVH');
+      // Load the IDL from the local file
+      const programId = new PublicKey('GQQQNJZdqKnFwB6di7u2PnsJZLX7hzaYW4g4b5BeQ3nE');
       
       // Create a minimal wallet for the program
       const wallet = new anchor.Wallet(Keypair.generate());
@@ -56,15 +54,35 @@ export class TokenCreator {
         commitment: 'confirmed',
       });
 
-      // For educational purposes, we'll create the program reference manually
-      // In production, you'd use: anchor.workspace.BondingCurveProgram
-      const idl = await Program.fetchIdl(programId, provider);
+      // Load IDL from local file
+      const idl = require('./bonding-curve-program.json');
       
-      if (!idl) {
-        throw new Error('Program IDL not found. Make sure the program is deployed.');
-      }
+      // Fix IDL structure issues
+      const processIdl = (idl: any) => {
+        const fixedIdl = { ...idl };
+        
+        // Ensure accounts have proper type definitions
+        if (fixedIdl.accounts) {
+          fixedIdl.accounts = fixedIdl.accounts.map((account: any) => {
+            if (!account.type && account.name && fixedIdl.types) {
+              // Find the type definition in types array
+              const typeDefn = fixedIdl.types.find((t: any) => t.name === account.name);
+              if (typeDefn) {
+                account.type = typeDefn.type;
+              }
+            }
+            return account;
+          });
+        }
+        
+        console.log('🔍 [TEST] After processing - Events structure:', JSON.stringify(fixedIdl.events?.slice(0, 1), null, 2));
+        
+        return fixedIdl;
+      };
 
-      this.program = new Program(idl, programId, provider);
+    const processedIdl = processIdl(idl);
+
+      this.program = new Program(processedIdl, programId, provider);
       return this.program;
     } catch (err) {
       error(`Failed to initialize program: ${err}`);
@@ -96,14 +114,14 @@ export class TokenCreator {
       info(`📍 Token mint will be: ${truncatePublicKey(tokenMint.publicKey)}`);
 
       // Derive PDA (Program Derived Address) for bonding curve
-      const [bondingCurvePda, bondingCurveBump] = PublicKey.findProgramAddressSync(
+      const [bondingCurvePda] = PublicKey.findProgramAddressSync(
         [Buffer.from('bonding_curve'), tokenMint.publicKey.toBuffer()],
         this.program.programId
       );
 
-      // Derive PDA for SOL vault
-      const [solVaultPda, solVaultBump] = PublicKey.findProgramAddressSync(
-        [Buffer.from('sol_vault'), bondingCurvePda.toBuffer()],
+      // Derive PDA for SOL vault (should be derived from token_mint, not bondingCurvePda)
+      const [solVaultPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('sol_vault'), tokenMint.publicKey.toBuffer()],
         this.program.programId
       );
 
@@ -123,10 +141,8 @@ export class TokenCreator {
         .initializeBondingCurve(
           new anchor.BN(initialPriceLamports),
           new anchor.BN(slopeLamports),
-          bondingCurveBump,
           params.name,
-          params.symbol,
-          params.uri || ''
+          params.symbol
         )
         .accounts({
           creator: params.creator.publicKey,
@@ -238,11 +254,6 @@ export class TokenCreator {
     }
     if (params.curveSlope > 1) {
       throw new Error('Curve slope seems too high (>1 SOL per token)');
-    }
-
-    // Validate URI if provided
-    if (params.uri && params.uri.length > 200) {
-      throw new Error('Metadata URI too long (max 200 characters)');
     }
 
     info('✅ Token parameters validated successfully');

@@ -6,16 +6,16 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-bonding_curve_program = "9ss4vSk1AzZsPHpmZ6fJae6vg4HefhcuGyh1425woFcV"
+bonding_curve_program = "GQQQNJZdqKnFwB6di7u2PnsJZLX7hzaYW4g4b5BeQ3nE"
 
 [programs.devnet]
-bonding_curve_program = "9ss4vSk1AzZsPHpmZ6fJae6vg4HefhcuGyh1425woFcV"
+bonding_curve_program = "GQQQNJZdqKnFwB6di7u2PnsJZLX7hzaYW4g4b5BeQ3nE"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
