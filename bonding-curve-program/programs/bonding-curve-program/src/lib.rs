@@ -4,7 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Mint};
 use anchor_spl::associated_token::AssociatedToken;
 
 // Program ID
-declare_id!("D5aD6zRq93w46mpqKgY3JY9aF7KEWdEkeUk9E3EThrVH");
+declare_id!("9ss4vSk1AzZsPHpmZ6fJae6vg4HefhcuGyh1425woFcV");
 
 /**
  * Educational Bonding Curve SPL Token Program
@@ -62,41 +62,34 @@ pub mod bonding_curve_program {
         bonding_curve.slope = slope;
         bonding_curve.bump = ctx.bumps.bonding_curve;
 
-        // Convert name and symbol to fixed-size arrays
-        let mut name_bytes = [0u8; 32];
-        let mut symbol_bytes = [0u8; 8];
-
+        // Convert name and symbol to fixed-size arrays (further optimized)
         let name_slice = name.as_bytes();
         let symbol_slice = symbol.as_bytes();
-
+        
+        // Initialize arrays with zeros and copy data
+        let mut name_bytes = [0u8; 32];
+        let mut symbol_bytes = [0u8; 8];
+        
         name_bytes[..name_slice.len().min(32)].copy_from_slice(&name_slice[..name_slice.len().min(32)]);
         symbol_bytes[..symbol_slice.len().min(8)].copy_from_slice(&symbol_slice[..symbol_slice.len().min(8)]);
 
         bonding_curve.name = name_bytes;
         bonding_curve.symbol = symbol_bytes;
 
-        // Create SOL vault
-        let sol_vault_bump = ctx.bumps.sol_vault;
-        let token_mint_key = ctx.accounts.token_mint.key();
-        let sol_vault_seeds = &[
-            b"sol_vault",
-            token_mint_key.as_ref(),
-            &[sol_vault_bump],
-        ];
-        let _sol_vault_signer = &[&sol_vault_seeds[..]];
-
         // Transfer initial rent to SOL vault
         let rent = Rent::get()?;
         let rent_lamports = rent.minimum_balance(0);
-        let transfer_instruction = anchor_lang::system_program::Transfer {
-            from: ctx.accounts.creator.to_account_info(),
-            to: ctx.accounts.sol_vault.to_account_info(),
-        };
-        let cpi_context = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            transfer_instruction,
-        );
-        anchor_lang::system_program::transfer(cpi_context, rent_lamports)?;
+        
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.creator.to_account_info(),
+                    to: ctx.accounts.sol_vault.to_account_info(),
+                },
+            ),
+            rent_lamports,
+        )?;
 
         // Emit an event for tracking and analytics
         emit!(BondingCurveInitialized {
@@ -586,36 +579,27 @@ fn calculate_tokens_for_sol(
             .ok_or(BondingCurveError::MathOverflow.into());
     }
     
-    // To avoid integer division issues, we'll multiply everything by 2
-    // This gives us: slope * tokens^2 + 2 * (initial_price + slope * current_supply) * tokens - 2 * sol_amount = 0
-    // So: a = slope, b = 2 * (initial_price + slope * current_supply), c = -2 * sol_amount
-    
-    let a = slope;
-    let b = (2u64)
-        .checked_mul(initial_price)
-        .ok_or(BondingCurveError::MathOverflow)?
-        .checked_add(
-            (2u64)
-                .checked_mul(slope)
-                .ok_or(BondingCurveError::MathOverflow)?
-                .checked_mul(current_supply)
-                .ok_or(BondingCurveError::MathOverflow)?
-        )
+    // Optimized calculation to reduce stack usage
+    // Calculate b = 2 * (initial_price + slope * current_supply)
+    let slope_times_supply = slope
+        .checked_mul(current_supply)
         .ok_or(BondingCurveError::MathOverflow)?;
-    let c_times_2 = (2u64)
+    
+    let b = initial_price
+        .checked_add(slope_times_supply)
+        .ok_or(BondingCurveError::MathOverflow)?
+        .checked_mul(2)
+        .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Calculate 4ac where a = slope and c = -2 * sol_amount
+    let four_ac = slope
         .checked_mul(sol_amount)
-        .ok_or(BondingCurveError::MathOverflow)?;
-    
-    // Use quadratic formula: x = (-b + sqrt(b^2 + 4ac)) / 2a
-    // Since c is negative in our equation, we have: x = (-b + sqrt(b^2 + 4a * c_times_2)) / 2a
-    
-    // Calculate discriminant: b^2 + 4 * a * c_times_2
-    let b_squared = b.checked_mul(b).ok_or(BondingCurveError::MathOverflow)?;
-    let four_ac = (4u64)
-        .checked_mul(a)
         .ok_or(BondingCurveError::MathOverflow)?
-        .checked_mul(c_times_2)
+        .checked_mul(8) // 4 * 2 = 8
         .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Calculate discriminant: b^2 + 4ac
+    let b_squared = b.checked_mul(b).ok_or(BondingCurveError::MathOverflow)?;
     let discriminant = b_squared
         .checked_add(four_ac)
         .ok_or(BondingCurveError::MathOverflow)?;
@@ -630,7 +614,7 @@ fn calculate_tokens_for_sol(
     }
     
     let numerator = sqrt_discriminant.checked_sub(b).unwrap();
-    let denominator = (2u64).checked_mul(a).unwrap();
+    let denominator = slope.checked_mul(2).unwrap(); // 2a where a = slope
     let tokens = numerator.checked_div(denominator).unwrap_or(0);
     
     Ok(tokens)
@@ -642,6 +626,7 @@ fn integer_sqrt(n: u64) -> u64 {
         return 0;
     }
     
+    // Optimized binary search to reduce stack usage
     let mut left = 1u64;
     let mut right = n;
     let mut result = 0u64;
@@ -649,6 +634,7 @@ fn integer_sqrt(n: u64) -> u64 {
     while left <= right {
         let mid = left + (right - left) / 2;
         
+        // Check for overflow and calculate mid_squared
         if let Some(mid_squared) = mid.checked_mul(mid) {
             if mid_squared == n {
                 return mid;
@@ -659,7 +645,7 @@ fn integer_sqrt(n: u64) -> u64 {
                 right = mid - 1;
             }
         } else {
-            // Overflow, reduce right
+            // Overflow occurred, reduce right boundary
             right = mid - 1;
         }
     }
@@ -682,23 +668,25 @@ fn calculate_sol_for_tokens(
     // The integral of (initial_price + (current_supply + x) * slope) dx from 0 to token_amount is:
     // initial_price * token_amount + slope * (current_supply * token_amount + token_amount^2 / 2)
     
-    // Calculate: initial_price * token_amount
+    // Optimized calculation to reduce stack usage
+    // Calculate base_cost = initial_price * token_amount
     let base_cost = initial_price
         .checked_mul(token_amount)
         .ok_or(BondingCurveError::MathOverflow)?;
     
-    // Calculate: slope * current_supply * token_amount
+    // Calculate supply_cost = slope * current_supply * token_amount
     let supply_cost = slope
         .checked_mul(current_supply)
         .ok_or(BondingCurveError::MathOverflow)?
         .checked_mul(token_amount)
         .ok_or(BondingCurveError::MathOverflow)?;
     
-    // Calculate: slope * token_amount^2 / 2
+    // Calculate quadratic_cost = slope * token_amount^2 / 2
+    let token_squared = token_amount
+        .checked_mul(token_amount)
+        .ok_or(BondingCurveError::MathOverflow)?;
     let quadratic_cost = slope
-        .checked_mul(token_amount)
-        .ok_or(BondingCurveError::MathOverflow)?
-        .checked_mul(token_amount)
+        .checked_mul(token_squared)
         .ok_or(BondingCurveError::MathOverflow)?
         .checked_div(2)
         .ok_or(BondingCurveError::MathOverflow)?;

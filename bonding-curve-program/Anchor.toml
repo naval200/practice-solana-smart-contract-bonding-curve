@@ -6,10 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-bonding_curve_program = "D5aD6zRq93w46mpqKgY3JY9aF7KEWdEkeUk9E3EThrVH"
+bonding_curve_program = "9ss4vSk1AzZsPHpmZ6fJae6vg4HefhcuGyh1425woFcV"
 
 [programs.devnet]
-bonding_curve_program = "D5aD6zRq93w46mpqKgY3JY9aF7KEWdEkeUk9E3EThrVH"
+bonding_curve_program = "9ss4vSk1AzZsPHpmZ6fJae6vg4HefhcuGyh1425woFcV"
 
 [registry]
 url = "https://api.apr.dev"
