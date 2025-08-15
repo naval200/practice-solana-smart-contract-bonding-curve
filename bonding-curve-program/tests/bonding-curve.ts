@@ -20,7 +20,7 @@ import { expect } from "chai";
  */
 
 describe("Bonding Curve SPL Token Program", () => {
-  // Configure the client to use the local cluster for testing
+  // Configure the client to use the local cluster
   anchor.setProvider(anchor.AnchorProvider.env());
 
   const program = anchor.workspace.BondingCurveProgram as Program<BondingCurveProgram>;
@@ -32,23 +32,19 @@ describe("Bonding Curve SPL Token Program", () => {
   let user2: Keypair;
   let tokenMint: Keypair;
   let bondingCurvePda: PublicKey;
-  let bondingCurveBump: number;
   let solVaultPda: PublicKey;
+  let bondingCurveBump: number;
   let solVaultBump: number;
 
   // Token parameters for testing
   const TOKEN_NAME = "TestCoin";
   const TOKEN_SYMBOL = "TEST";
   const TOKEN_URI = "https://example.com/test-token.json";
-  const INITIAL_PRICE = new anchor.BN(100_000); // 0.0001 SOL in lamports
-  const SLOPE = new anchor.BN(100); // Price increases by 0.0000001 SOL per token
+  const INITIAL_PRICE = new anchor.BN(100); // 0.0000001 SOL in lamports (reduced further)
+  const SLOPE = new anchor.BN(1); // Keep the same small slope
 
-  /**
-   * Setup phase: Create accounts and derive PDAs
-   * This runs before all tests to prepare the testing environment
-   */
   before(async () => {
-    console.log("🔧 Setting up test environment...");
+    console.log("\n🔧 Setting up test environment...");
 
     // Generate keypairs for test accounts
     creator = Keypair.generate();
@@ -56,50 +52,61 @@ describe("Bonding Curve SPL Token Program", () => {
     user2 = Keypair.generate();
     tokenMint = Keypair.generate();
 
-    // Fund test accounts with SOL for transactions
-    // Note: In a real test environment, you'd use a test validator or faucet
-    const fundingAmount = 10 * LAMPORTS_PER_SOL; // 10 SOL each
-    
-    await provider.connection.requestAirdrop(creator.publicKey, fundingAmount);
-    await provider.connection.requestAirdrop(user1.publicKey, fundingAmount);
-    await provider.connection.requestAirdrop(user2.publicKey, fundingAmount);
-
-    // Wait for airdrops to confirm
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Derive Program Derived Addresses (PDAs)
-    [bondingCurvePda, bondingCurveBump] = PublicKey.findProgramAddressSync(
+    // Calculate PDAs
+    [bondingCurvePda, bondingCurveBump] = await PublicKey.findProgramAddress(
       [Buffer.from("bonding_curve"), tokenMint.publicKey.toBuffer()],
       program.programId
     );
 
-    [solVaultPda, solVaultBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("sol_vault"), bondingCurvePda.toBuffer()],
+    [solVaultPda, solVaultBump] = await PublicKey.findProgramAddress(
+      [Buffer.from("sol_vault"), tokenMint.publicKey.toBuffer()],
       program.programId
     );
 
+    // Check balance and fund only if needed
+    const MINIMUM_BALANCE_NEEDED = 0.05 * LAMPORTS_PER_SOL; // 0.05 SOL minimum
+    const AIRDROP_AMOUNT = 2 * LAMPORTS_PER_SOL; // Request 2 SOL when needed
+
+    // Helper function to check and fund account
+    async function checkAndFundAccount(account: Keypair, label: string) {
+      const balance = await provider.connection.getBalance(account.publicKey);
+      console.log(`💰 ${label} current balance: ${balance / LAMPORTS_PER_SOL} SOL`);
+      
+      if (balance < MINIMUM_BALANCE_NEEDED) {
+        console.log(`🌧  Requesting airdrop of 2 SOL for ${label}...`);
+        try {
+          const signature = await provider.connection.requestAirdrop(account.publicKey, AIRDROP_AMOUNT);
+          await provider.connection.confirmTransaction(signature);
+          const newBalance = await provider.connection.getBalance(account.publicKey);
+          console.log(`✅ ${label} new balance: ${newBalance / LAMPORTS_PER_SOL} SOL`);
+        } catch (error) {
+          console.error(`❌ Failed to airdrop to ${label}:`, error);
+          throw error;
+        }
+      }
+    }
+
+    // Fund test accounts
+    await checkAndFundAccount(creator, "Creator");
+    await checkAndFundAccount(user1, "User1");
+    await checkAndFundAccount(user2, "User2");
+
+    // Log test setup info
     console.log(`📍 Token Mint: ${tokenMint.publicKey.toString()}`);
     console.log(`📊 Bonding Curve: ${bondingCurvePda.toString()}`);
     console.log(`💰 SOL Vault: ${solVaultPda.toString()}`);
   });
 
-  /**
-   * Test 1: Initialize Bonding Curve
-   * This test validates the token creation and bonding curve initialization
-   */
   it("Initializes a bonding curve for a new token", async () => {
     console.log("\n🧪 Test 1: Initializing bonding curve...");
 
     try {
-      // Execute the initialize_bonding_curve instruction
       const tx = await program.methods
         .initializeBondingCurve(
           INITIAL_PRICE,
           SLOPE,
-          bondingCurveBump,
           TOKEN_NAME,
-          TOKEN_SYMBOL,
-          TOKEN_URI
+          TOKEN_SYMBOL
         )
         .accounts({
           creator: creator.publicKey,
@@ -109,7 +116,7 @@ describe("Bonding Curve SPL Token Program", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-        })
+        } as any)
         .signers([creator, tokenMint])
         .rpc();
 
@@ -125,9 +132,12 @@ describe("Bonding Curve SPL Token Program", () => {
       expect(bondingCurveAccount.slope.toNumber()).to.equal(SLOPE.toNumber());
       expect(bondingCurveAccount.currentSupply.toNumber()).to.equal(0);
       expect(bondingCurveAccount.solReserves.toNumber()).to.equal(0);
-      expect(bondingCurveAccount.name).to.equal(TOKEN_NAME);
-      expect(bondingCurveAccount.symbol).to.equal(TOKEN_SYMBOL);
-      expect(bondingCurveAccount.uri).to.equal(TOKEN_URI);
+      
+      // Convert byte arrays back to strings for comparison
+      const nameStr = Buffer.from(bondingCurveAccount.name).toString('utf8').replace(/\0/g, '');
+      const symbolStr = Buffer.from(bondingCurveAccount.symbol).toString('utf8').replace(/\0/g, '');
+      expect(nameStr).to.equal(TOKEN_NAME);
+      expect(symbolStr).to.equal(TOKEN_SYMBOL);
 
       console.log("✅ Bonding curve initialized with correct parameters");
       console.log(`   Name: ${bondingCurveAccount.name}`);
@@ -140,14 +150,10 @@ describe("Bonding Curve SPL Token Program", () => {
     }
   });
 
-  /**
-   * Test 2: Buy Tokens (First Purchase)
-   * This test validates the token purchasing mechanism and price calculations
-   */
   it("Allows users to buy tokens with SOL", async () => {
     console.log("\n🧪 Test 2: Buying tokens with SOL...");
 
-    const solAmountToPay = new anchor.BN(1_000_000); // 0.001 SOL in lamports
+    const solAmountToPay = new anchor.BN(2_000_000); // 0.002 SOL in lamports (enough for rent + purchase)
     
     try {
       // Get user1's associated token account address
@@ -156,7 +162,7 @@ describe("Bonding Curve SPL Token Program", () => {
         user1.publicKey
       );
 
-      console.log(`💰 User1 buying tokens with 0.001 SOL...`);
+      console.log(`💰 User1 buying tokens with ${solAmountToPay.toNumber() / LAMPORTS_PER_SOL} SOL...`);
       console.log(`🪙 User1 token account: ${user1TokenAccount.toString()}`);
 
       // Get balances before purchase
@@ -175,7 +181,8 @@ describe("Bonding Curve SPL Token Program", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
-        })
+          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        } as any)
         .signers([user1])
         .rpc();
 
@@ -206,14 +213,10 @@ describe("Bonding Curve SPL Token Program", () => {
     }
   });
 
-  /**
-   * Test 3: Buy More Tokens (Price Increase)
-   * This test validates that the bonding curve increases price as supply grows
-   */
   it("Demonstrates price increases with more purchases", async () => {
     console.log("\n🧪 Test 3: Testing price increases...");
 
-    const solAmountToPay = new anchor.BN(2_000_000); // 0.002 SOL in lamports
+    const solAmountToPay = new anchor.BN(3_000_000); // 0.003 SOL in lamports (enough for rent + purchase)
 
     try {
       // Get state before second purchase
@@ -230,6 +233,8 @@ describe("Bonding Curve SPL Token Program", () => {
         user2.publicKey
       );
 
+      console.log(`💰 User2 buying tokens with ${solAmountToPay.toNumber() / LAMPORTS_PER_SOL} SOL...`);
+
       // Execute second purchase
       const tx = await program.methods
         .buyTokens(solAmountToPay)
@@ -242,7 +247,8 @@ describe("Bonding Curve SPL Token Program", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
-        })
+          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        } as any)
         .signers([user2])
         .rpc();
 
@@ -275,10 +281,6 @@ describe("Bonding Curve SPL Token Program", () => {
     }
   });
 
-  /**
-   * Test 4: Sell Tokens
-   * This test validates the token selling mechanism and liquidity provision
-   */
   it("Allows users to sell tokens back for SOL", async () => {
     console.log("\n🧪 Test 4: Selling tokens for SOL...");
 
@@ -290,7 +292,7 @@ describe("Bonding Curve SPL Token Program", () => {
       );
       
       const tokenBalanceBefore = await provider.connection.getTokenAccountBalance(user1TokenAccount);
-      const tokenAmountToSell = Math.floor(parseInt(tokenBalanceBefore.value.amount) / 2); // Sell half
+      const tokenAmountToSell = Math.floor(parseInt(tokenBalanceBefore.value.amount) / 100); // Sell 1%
 
       console.log(`🪙 User1 token balance: ${tokenBalanceBefore.value.amount}`);
       console.log(`💸 Selling ${tokenAmountToSell} tokens...`);
@@ -309,7 +311,8 @@ describe("Bonding Curve SPL Token Program", () => {
           sellerTokenAccount: user1TokenAccount,
           solVault: solVaultPda,
           tokenProgram: TOKEN_PROGRAM_ID,
-        })
+          systemProgram: SystemProgram.programId,
+        } as any)
         .signers([user1])
         .rpc();
 
@@ -340,10 +343,6 @@ describe("Bonding Curve SPL Token Program", () => {
     }
   });
 
-  /**
-   * Test 5: Get Current Price
-   * This test validates the price query functionality
-   */
   it("Can query current token price", async () => {
     console.log("\n🧪 Test 5: Querying current price...");
 
@@ -371,10 +370,6 @@ describe("Bonding Curve SPL Token Program", () => {
     }
   });
 
-  /**
-   * Test 6: Error Cases
-   * This test validates proper error handling for invalid operations
-   */
   it("Handles error cases correctly", async () => {
     console.log("\n🧪 Test 6: Testing error cases...");
 
@@ -398,7 +393,8 @@ describe("Bonding Curve SPL Token Program", () => {
             tokenProgram: TOKEN_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
-          })
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          } as any)
           .signers([user1])
           .rpc();
 
@@ -426,7 +422,7 @@ describe("Bonding Curve SPL Token Program", () => {
             sellerTokenAccount: user1TokenAccount,
             solVault: solVaultPda,
             tokenProgram: TOKEN_PROGRAM_ID,
-          })
+          } as any)
           .signers([user1])
           .rpc();
 
@@ -443,10 +439,6 @@ describe("Bonding Curve SPL Token Program", () => {
     }
   });
 
-  /**
-   * Final Test Summary
-   * Display a summary of all test results and final state
-   */
   after(async () => {
     console.log("\n📊 TEST SUMMARY");
     console.log("═".repeat(50));

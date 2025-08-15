@@ -439,6 +439,11 @@ diff@5.0.0:
   resolved "https://registry.npmjs.org/diff/-/diff-5.0.0.tgz"
   integrity sha512-/VTCrvm5Z0JGty/BWHljh+BAiw3IK+2j87NGMu8Nwc/f48WoDAC395uomO9ZD117ZOBaHmkX1oyLvkVM/aIT3w==
 
+dotenv@^17.2.1:
+  version "17.2.1"
+  resolved "https://registry.npmjs.org/dotenv/-/dotenv-17.2.1.tgz"
+  integrity sha512-kQhDYKZecqnM0fCnzI5eIv5L4cAe/iRI+HqMbO/hbRdTAeXDG+M9FjipUxNfbARuEg4iHIbhnhs78BCHNbSxEQ==
+
 emoji-regex@^8.0.0:
   version "8.0.0"
   resolved "https://registry.npmjs.org/emoji-regex/-/emoji-regex-8.0.0.tgz"
@@ -1100,12 +1105,7 @@ y18n@^5.0.5:
   resolved "https://registry.npmjs.org/y18n/-/y18n-5.0.8.tgz"
   integrity sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==
 
-yargs-parser@^20.2.2:
-  version "20.2.9"
-  resolved "https://registry.npmjs.org/yargs-parser/-/yargs-parser-20.2.9.tgz"
-  integrity sha512-y11nGElTIV+CT3Zv9t7VKl+Q3hTQoT9a1Qzezhhl6Rp21gJ/IVTW7Z3y9EWXhuUBC2Shnf+DX0antecpAwSP8w==
-
-yargs-parser@20.2.4:
+yargs-parser@^20.2.2, yargs-parser@20.2.4:
   version "20.2.4"
   resolved "https://registry.npmjs.org/yargs-parser/-/yargs-parser-20.2.4.tgz"
   integrity sha512-WOkpgNhPTlE73h4VFAFsOnomJVaovO8VqLDzy5saChRBFQFBoMYirowyW+Q9HB4HFF4Z7VZTiG3iSzJJA29yRA==

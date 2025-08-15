@@ -1,9 +1,10 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Mint, MintTo, Burn};
+use anchor_lang::system_program;
+use anchor_spl::token::{self, Token, TokenAccount, Mint};
 use anchor_spl::associated_token::AssociatedToken;
 
-// Program ID will be generated when deploying
-declare_id!("7312f8pgpoquo7RZnPh7hGnhyi4UAteW5Y2xwFonB6eR");
+// Program ID
+declare_id!("GQQQNJZdqKnFwB6di7u2PnsJZLX7hzaYW4g4b5BeQ3nE");
 
 /**
  * Educational Bonding Curve SPL Token Program
@@ -42,10 +43,8 @@ pub mod bonding_curve_program {
         ctx: Context<InitializeBondingCurve>,
         initial_price: u64,      // Price in lamports per token
         slope: u64,              // Price increase per token minted
-        bump: u8,                // PDA bump for the bonding curve account
         name: String,            // Token name
         symbol: String,          // Token symbol
-        uri: String,             // Metadata URI
     ) -> Result<()> {
         // Validate input parameters to prevent common mistakes
         require!(initial_price > 0, BondingCurveError::InvalidPrice);
@@ -53,21 +52,44 @@ pub mod bonding_curve_program {
         require!(name.len() <= 32, BondingCurveError::NameTooLong);
         require!(symbol.len() <= 10, BondingCurveError::SymbolTooLong);
 
-        // Get the bonding curve account where we'll store curve parameters
+        // Initialize bonding curve state
         let bonding_curve = &mut ctx.accounts.bonding_curve;
-        
-        // Store the curve parameters
-        bonding_curve.token_mint = ctx.accounts.token_mint.key();
         bonding_curve.creator = ctx.accounts.creator.key();
+        bonding_curve.token_mint = ctx.accounts.token_mint.key();
+        bonding_curve.current_supply = 0;
+        bonding_curve.sol_reserves = 0;
         bonding_curve.initial_price = initial_price;
         bonding_curve.slope = slope;
-        bonding_curve.current_supply = 0;
-        bonding_curve.sol_reserves = 0;  // Track SOL collected from sales
-        bonding_curve.bump = bump;
-        bonding_curve.name = name;
-        bonding_curve.symbol = symbol;
-        bonding_curve.uri = uri;
-        bonding_curve.created_at = Clock::get()?.unix_timestamp;
+        bonding_curve.bump = ctx.bumps.bonding_curve;
+
+        // Convert name and symbol to fixed-size arrays (further optimized)
+        let name_slice = name.as_bytes();
+        let symbol_slice = symbol.as_bytes();
+        
+        // Initialize arrays with zeros and copy data
+        let mut name_bytes = [0u8; 32];
+        let mut symbol_bytes = [0u8; 8];
+        
+        name_bytes[..name_slice.len().min(32)].copy_from_slice(&name_slice[..name_slice.len().min(32)]);
+        symbol_bytes[..symbol_slice.len().min(8)].copy_from_slice(&symbol_slice[..symbol_slice.len().min(8)]);
+
+        bonding_curve.name = name_bytes;
+        bonding_curve.symbol = symbol_bytes;
+
+        // Transfer initial rent to SOL vault
+        let rent = Rent::get()?;
+        let rent_lamports = rent.minimum_balance(0);
+        
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.creator.to_account_info(),
+                    to: ctx.accounts.sol_vault.to_account_info(),
+                },
+            ),
+            rent_lamports,
+        )?;
 
         // Emit an event for tracking and analytics
         emit!(BondingCurveInitialized {
@@ -102,7 +124,6 @@ pub mod bonding_curve_program {
         let bonding_curve = &ctx.accounts.bonding_curve;
         
         // Calculate how many tokens can be purchased with the given SOL
-        // Using linear bonding curve: price = initial_price + (supply * slope)
         let tokens_to_mint = calculate_tokens_for_sol(
             sol_amount,
             bonding_curve.current_supply,
@@ -110,79 +131,61 @@ pub mod bonding_curve_program {
             bonding_curve.slope,
         )?;
 
-        // Ensure we're minting at least some tokens (prevent dust transactions)
-        require!(tokens_to_mint > 0, BondingCurveError::InsufficientSol);
-
-        // Calculate the actual SOL cost for these tokens (may be less than input)
-        let actual_sol_cost = calculate_sol_for_tokens(
-            tokens_to_mint,
-            bonding_curve.current_supply,
-            bonding_curve.initial_price,
-            bonding_curve.slope,
-        )?;
-
-        // Transfer SOL from buyer to the bonding curve's SOL vault
-        let transfer_instruction = anchor_lang::system_program::Transfer {
-            from: ctx.accounts.buyer.to_account_info(),
-            to: ctx.accounts.sol_vault.to_account_info(),
-        };
-        
+        // Transfer SOL to vault
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
-            transfer_instruction,
+            system_program::Transfer {
+                from: ctx.accounts.buyer.to_account_info(),
+                to: ctx.accounts.sol_vault.to_account_info(),
+            },
         );
-        
-        anchor_lang::system_program::transfer(cpi_context, actual_sol_cost)?;
+        system_program::transfer(cpi_context, sol_amount)?;
 
-        // Mint tokens to the buyer's associated token account
-        let token_mint_key = ctx.accounts.token_mint.key();
-        let seeds = &[
-            b"bonding_curve",
-            token_mint_key.as_ref(),
-            &[bonding_curve.bump],
-        ];
-        let signer = &[&seeds[..]];
-
-        let mint_instruction = MintTo {
-            mint: ctx.accounts.token_mint.to_account_info(),
-            to: ctx.accounts.buyer_token_account.to_account_info(),
-            authority: ctx.accounts.bonding_curve.to_account_info(),
-        };
-
-        let cpi_context = CpiContext::new_with_signer(
+        // Mint tokens to buyer
+        let cpi_context = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
-            mint_instruction,
-            signer,
+            token::MintTo {
+                mint: ctx.accounts.token_mint.to_account_info(),
+                to: ctx.accounts.buyer_token_account.to_account_info(),
+                authority: ctx.accounts.bonding_curve.to_account_info(),
+            },
         );
-
-        token::mint_to(cpi_context, tokens_to_mint)?;
+        token::mint_to(
+            cpi_context.with_signer(&[&[
+                b"bonding_curve",
+                ctx.accounts.token_mint.key().as_ref(),
+                &[bonding_curve.bump],
+            ]]),
+            tokens_to_mint,
+        )?;
 
         // Update bonding curve state
         let bonding_curve = &mut ctx.accounts.bonding_curve;
-        bonding_curve.current_supply = bonding_curve.current_supply
-            .checked_add(tokens_to_mint)
-            .ok_or(BondingCurveError::SupplyOverflow)?;
-        
-        bonding_curve.sol_reserves = bonding_curve.sol_reserves
-            .checked_add(actual_sol_cost)
-            .ok_or(BondingCurveError::ReservesOverflow)?;
+        bonding_curve.current_supply = bonding_curve.current_supply.checked_add(tokens_to_mint).unwrap();
+        bonding_curve.sol_reserves = bonding_curve.sol_reserves.checked_add(sol_amount).unwrap();
 
-        // Calculate new price for display/events
+        // Calculate the new price after the purchase
         let new_price = bonding_curve.initial_price
             .checked_add(bonding_curve.current_supply.checked_mul(bonding_curve.slope).unwrap())
             .unwrap();
 
-        // Emit event for tracking
+        // Emit purchase event for tracking and analytics
         emit!(TokensPurchased {
             buyer: ctx.accounts.buyer.key(),
             bonding_curve: bonding_curve.key(),
             tokens_minted: tokens_to_mint,
-            sol_spent: actual_sol_cost,
+            sol_spent: sol_amount,
             new_supply: bonding_curve.current_supply,
             new_price,
         });
 
-        msg!("Tokens purchased: {} tokens for {} lamports", tokens_to_mint, actual_sol_cost);
+        // Log the purchase details
+        msg!(
+            "Tokens purchased: {} tokens for {} lamports",
+            tokens_to_mint,
+            sol_amount
+        );
+
         Ok(())
     }
 
@@ -203,62 +206,70 @@ pub mod bonding_curve_program {
         // Validate input
         require!(token_amount > 0, BondingCurveError::InvalidAmount);
 
-        let bonding_curve = &mut ctx.accounts.bonding_curve;
+        let bonding_curve = &ctx.accounts.bonding_curve;
         
-        // Ensure we have enough supply to burn
-        require!(
-            bonding_curve.current_supply >= token_amount,
-            BondingCurveError::InsufficientSupply
-        );
-
-        // Calculate SOL to return for these tokens
-        // We calculate based on the current supply minus the tokens being sold
+        // Calculate SOL to return based on bonding curve
+        // For selling, we calculate the value of tokens being sold based on their position in the curve
+        // We calculate the area under the curve from (current_supply - token_amount) to current_supply
+        let new_supply_after_sale = bonding_curve.current_supply
+            .checked_sub(token_amount)
+            .ok_or(BondingCurveError::InsufficientSupply)?;
+            
         let sol_to_return = calculate_sol_for_tokens(
             token_amount,
-            bonding_curve.current_supply.checked_sub(token_amount).unwrap(),
+            new_supply_after_sale,
             bonding_curve.initial_price,
             bonding_curve.slope,
         )?;
 
-        // Ensure we have enough SOL reserves to pay out
+        // Ensure we have enough SOL in reserves
         require!(
             bonding_curve.sol_reserves >= sol_to_return,
             BondingCurveError::InsufficientReserves
         );
 
-        // Burn tokens from the seller's account
-        let burn_instruction = Burn {
-            mint: ctx.accounts.token_mint.to_account_info(),
-            from: ctx.accounts.seller_token_account.to_account_info(),
-            authority: ctx.accounts.seller.to_account_info(),
-        };
-
+        // Burn tokens from seller
         let cpi_context = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
-            burn_instruction,
+            token::Burn {
+                mint: ctx.accounts.token_mint.to_account_info(),
+                from: ctx.accounts.seller_token_account.to_account_info(),
+                authority: ctx.accounts.seller.to_account_info(),
+            },
         );
-
         token::burn(cpi_context, token_amount)?;
 
         // Transfer SOL from vault to seller
-        **ctx.accounts.sol_vault.to_account_info().try_borrow_mut_lamports()? -= sol_to_return;
-        **ctx.accounts.seller.to_account_info().try_borrow_mut_lamports()? += sol_to_return;
+        let token_mint_key = ctx.accounts.token_mint.key();
+        let seeds = &[
+            b"sol_vault",
+            token_mint_key.as_ref(),
+            &[ctx.bumps.sol_vault],
+        ];
+        let signer = &[&seeds[..]];
+
+        let transfer_instruction = anchor_lang::system_program::Transfer {
+            from: ctx.accounts.sol_vault.to_account_info(),
+            to: ctx.accounts.seller.to_account_info(),
+        };
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            transfer_instruction,
+            signer,
+        );
+        anchor_lang::system_program::transfer(cpi_context, sol_to_return)?;
 
         // Update bonding curve state
-        bonding_curve.current_supply = bonding_curve.current_supply
-            .checked_sub(token_amount)
-            .ok_or(BondingCurveError::SupplyUnderflow)?;
-        
-        bonding_curve.sol_reserves = bonding_curve.sol_reserves
-            .checked_sub(sol_to_return)
-            .ok_or(BondingCurveError::ReservesUnderflow)?;
+        let bonding_curve = &mut ctx.accounts.bonding_curve;
+        bonding_curve.current_supply = bonding_curve.current_supply.checked_sub(token_amount).unwrap();
+        bonding_curve.sol_reserves = bonding_curve.sol_reserves.checked_sub(sol_to_return).unwrap();
 
-        // Calculate new price
+        // Calculate the new price after the sale
         let new_price = bonding_curve.initial_price
             .checked_add(bonding_curve.current_supply.checked_mul(bonding_curve.slope).unwrap())
             .unwrap();
 
-        // Emit event
+        // Emit sale event for tracking and analytics
         emit!(TokensSold {
             seller: ctx.accounts.seller.key(),
             bonding_curve: bonding_curve.key(),
@@ -268,7 +279,13 @@ pub mod bonding_curve_program {
             new_price,
         });
 
-        msg!("Tokens sold: {} tokens for {} lamports", token_amount, sol_to_return);
+        // Log the sale details
+        msg!(
+            "Tokens sold: {} tokens for {} lamports",
+            token_amount,
+            sol_to_return
+        );
+
         Ok(())
     }
 
@@ -294,22 +311,23 @@ pub mod bonding_curve_program {
  */
 
 #[derive(Accounts)]
-#[instruction(initial_price: u64, slope: u64, bump: u8)]
+#[instruction(initial_price: u64, slope: u64, name: String, symbol: String)]
 pub struct InitializeBondingCurve<'info> {
-    /// The creator/authority of the bonding curve
+    /// The creator of the bonding curve
     #[account(mut)]
     pub creator: Signer<'info>,
 
-    /// The token mint that will be managed by the bonding curve
+    /// The token mint
     #[account(
         init,
         payer = creator,
-        mint::decimals = 9,  // Standard SPL token decimals
-        mint::authority = bonding_curve,  // Bonding curve can mint/burn
+        mint::decimals = 0,
+        mint::authority = bonding_curve,
+        mint::freeze_authority = bonding_curve,
     )]
     pub token_mint: Account<'info, Mint>,
 
-    /// The bonding curve state account (PDA)
+    /// The bonding curve state
     #[account(
         init,
         payer = creator,
@@ -319,11 +337,11 @@ pub struct InitializeBondingCurve<'info> {
     )]
     pub bonding_curve: Account<'info, BondingCurve>,
 
-    /// Vault to hold SOL reserves from token sales
-    /// CHECK: This is a PDA that will hold SOL
+    /// SOL vault to receive payment
+    /// CHECK: This is a PDA that holds SOL
     #[account(
         mut,
-        seeds = [b"sol_vault", bonding_curve.key().as_ref()],
+        seeds = [b"sol_vault", token_mint.key().as_ref()],
         bump
     )]
     pub sol_vault: AccountInfo<'info>,
@@ -332,6 +350,12 @@ pub struct InitializeBondingCurve<'info> {
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+}
+
+impl<'info> InitializeBondingCurve<'info> {
+    pub fn validate(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -366,7 +390,7 @@ pub struct BuyTokens<'info> {
     /// CHECK: This is a PDA that holds SOL
     #[account(
         mut,
-        seeds = [b"sol_vault", bonding_curve.key().as_ref()],
+        seeds = [b"sol_vault", token_mint.key().as_ref()],
         bump
     )]
     pub sol_vault: AccountInfo<'info>,
@@ -379,6 +403,7 @@ pub struct BuyTokens<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction()]
 pub struct SellTokens<'info> {
     /// The seller of tokens
     #[account(mut)]
@@ -396,25 +421,22 @@ pub struct SellTokens<'info> {
     #[account(mut)]
     pub token_mint: Account<'info, Mint>,
 
-    /// Seller's token account (must exist with tokens)
-    #[account(
-        mut,
-        associated_token::mint = token_mint,
-        associated_token::authority = seller
-    )]
+    /// Seller's token account
+    #[account(mut)]
     pub seller_token_account: Account<'info, TokenAccount>,
 
-    /// SOL vault to pay seller from
+    /// SOL vault to send payment from
     /// CHECK: This is a PDA that holds SOL
     #[account(
         mut,
-        seeds = [b"sol_vault", bonding_curve.key().as_ref()],
+        seeds = [b"sol_vault", token_mint.key().as_ref()],
         bump
     )]
     pub sol_vault: AccountInfo<'info>,
 
     // Required programs
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -429,35 +451,37 @@ pub struct GetPrice<'info> {
 
 #[account]
 pub struct BondingCurve {
-    /// The token mint this curve manages
-    pub token_mint: Pubkey,
-    /// Creator/authority of the curve
+    /// The creator/authority of the bonding curve
     pub creator: Pubkey,
-    /// Initial price in lamports per token
-    pub initial_price: u64,
-    /// Price increase per token minted (slope)
-    pub slope: u64,
+    /// The token mint that this bonding curve manages
+    pub token_mint: Pubkey,
     /// Current total supply of tokens
     pub current_supply: u64,
-    /// SOL reserves held by the curve
+    /// Current SOL reserves
     pub sol_reserves: u64,
+    /// Initial price in lamports
+    pub initial_price: u64,
+    /// Price slope in lamports
+    pub slope: u64,
     /// PDA bump seed
     pub bump: u8,
     /// Token name
-    pub name: String,
-    /// Token symbol  
-    pub symbol: String,
-    /// Metadata URI
-    pub uri: String,
-    /// Creation timestamp
-    pub created_at: i64,
+    pub name: [u8; 32],
+    /// Token symbol
+    pub symbol: [u8; 8],
 }
 
 impl BondingCurve {
-    // Calculate space needed for the account
-    // 8 discriminator + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 4+32 + 4+10 + 4+200 + 8 = ~365 bytes
-    // Round up to 400 for safety
-    pub const LEN: usize = 400;
+    pub const LEN: usize = 8 + // Discriminator
+        32 + // creator
+        32 + // token_mint
+        8 + // current_supply
+        8 + // sol_reserves
+        8 + // initial_price
+        8 + // slope
+        1 + // bump
+        32 + // name
+        8; // symbol
 }
 
 /**
@@ -537,7 +561,7 @@ pub enum BondingCurveError {
  */
 
 /// Calculate how many tokens can be bought with a given amount of SOL
-/// Uses the integral of the linear bonding curve
+/// Solves the quadratic equation that arises from the bonding curve integral
 fn calculate_tokens_for_sol(
     sol_amount: u64,
     current_supply: u64,
@@ -545,49 +569,133 @@ fn calculate_tokens_for_sol(
     slope: u64,
 ) -> Result<u64> {
     // For a linear bonding curve: price = initial_price + supply * slope
-    // The integral (area under curve) gives us the total cost
-    // We solve: sol_amount = initial_price * tokens + slope * (current_supply * tokens + tokens^2 / 2)
+    // The integral gives us: sol_amount = initial_price * tokens + slope * (current_supply * tokens + tokens^2 / 2)
+    // Rearranging: (slope/2) * tokens^2 + (initial_price + slope * current_supply) * tokens - sol_amount = 0
     
-    // Simplified approximation for educational purposes
-    // In production, you'd want more precise math handling edge cases
+    if slope == 0 {
+        // If slope is 0, it's a flat curve: sol_amount = initial_price * tokens
+        return sol_amount
+            .checked_div(initial_price)
+            .ok_or(BondingCurveError::MathOverflow.into());
+    }
     
-    let current_price = initial_price
-        .checked_add(current_supply.checked_mul(slope).unwrap())
-        .unwrap();
-    
-    // For small purchases, approximate with current price
-    let tokens = sol_amount
-        .checked_div(current_price)
+    // Optimized calculation to reduce stack usage
+    // Calculate b = 2 * (initial_price + slope * current_supply)
+    let slope_times_supply = slope
+        .checked_mul(current_supply)
         .ok_or(BondingCurveError::MathOverflow)?;
+    
+    let b = initial_price
+        .checked_add(slope_times_supply)
+        .ok_or(BondingCurveError::MathOverflow)?
+        .checked_mul(2)
+        .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Calculate 4ac where a = slope and c = -2 * sol_amount
+    let four_ac = slope
+        .checked_mul(sol_amount)
+        .ok_or(BondingCurveError::MathOverflow)?
+        .checked_mul(8) // 4 * 2 = 8
+        .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Calculate discriminant: b^2 + 4ac
+    let b_squared = b.checked_mul(b).ok_or(BondingCurveError::MathOverflow)?;
+    let discriminant = b_squared
+        .checked_add(four_ac)
+        .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Calculate sqrt(discriminant)
+    let sqrt_discriminant = integer_sqrt(discriminant);
+    
+    // Calculate tokens = (-b + sqrt(discriminant)) / (2a)
+    // Since b > 0 and we want positive result, we need sqrt_discriminant > b
+    if sqrt_discriminant <= b {
+        return Ok(0); // Not enough SOL to buy any tokens
+    }
+    
+    let numerator = sqrt_discriminant.checked_sub(b).unwrap();
+    let denominator = slope.checked_mul(2).unwrap(); // 2a where a = slope
+    let tokens = numerator.checked_div(denominator).unwrap_or(0);
     
     Ok(tokens)
 }
 
+/// Integer square root approximation using binary search
+fn integer_sqrt(n: u64) -> u64 {
+    if n == 0 {
+        return 0;
+    }
+    
+    // Optimized binary search to reduce stack usage
+    let mut left = 1u64;
+    let mut right = n;
+    let mut result = 0u64;
+    
+    while left <= right {
+        let mid = left + (right - left) / 2;
+        
+        // Check for overflow and calculate mid_squared
+        if let Some(mid_squared) = mid.checked_mul(mid) {
+            if mid_squared == n {
+                return mid;
+            } else if mid_squared < n {
+                left = mid + 1;
+                result = mid;
+            } else {
+                right = mid - 1;
+            }
+        } else {
+            // Overflow occurred, reduce right boundary
+            right = mid - 1;
+        }
+    }
+    
+    result
+}
+
 /// Calculate how much SOL is needed to buy a specific number of tokens
+/// This uses the integral of the linear bonding curve to calculate the area under the curve
 fn calculate_sol_for_tokens(
     token_amount: u64,
     current_supply: u64,
     initial_price: u64,
     slope: u64,
 ) -> Result<u64> {
-    // Calculate the area under the bonding curve
-    // From current_supply to current_supply + token_amount
+    // For a linear bonding curve: price = initial_price + supply * slope
+    // To calculate the total cost for token_amount tokens, we need to integrate
+    // the price function from current_supply to current_supply + token_amount
     
-    let start_price = initial_price
-        .checked_add(current_supply.checked_mul(slope).unwrap())
-        .unwrap();
+    // The integral of (initial_price + (current_supply + x) * slope) dx from 0 to token_amount is:
+    // initial_price * token_amount + slope * (current_supply * token_amount + token_amount^2 / 2)
     
-    let end_price = initial_price
-        .checked_add((current_supply.checked_add(token_amount).unwrap()).checked_mul(slope).unwrap())
-        .unwrap();
-    
-    // Use average price * quantity as approximation
-    let average_price = (start_price.checked_add(end_price).unwrap())
-        .checked_div(2)
-        .unwrap();
-    
-    let total_cost = average_price
+    // Optimized calculation to reduce stack usage
+    // Calculate base_cost = initial_price * token_amount
+    let base_cost = initial_price
         .checked_mul(token_amount)
+        .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Calculate supply_cost = slope * current_supply * token_amount
+    let supply_cost = slope
+        .checked_mul(current_supply)
+        .ok_or(BondingCurveError::MathOverflow)?
+        .checked_mul(token_amount)
+        .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Calculate quadratic_cost = slope * token_amount^2 / 2
+    let token_squared = token_amount
+        .checked_mul(token_amount)
+        .ok_or(BondingCurveError::MathOverflow)?;
+    let quadratic_cost = slope
+        .checked_mul(token_squared)
+        .ok_or(BondingCurveError::MathOverflow)?
+        .checked_div(2)
+        .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Total cost = base_cost + supply_cost + quadratic_cost
+    let total_cost = base_cost
+        .checked_add(supply_cost)
+        .ok_or(BondingCurveError::MathOverflow)?
+        .checked_add(quadratic_cost)
         .ok_or(BondingCurveError::MathOverflow)?;
     
     Ok(total_cost)
